@@ -1,6 +1,34 @@
 const Product = require("./../models/productModel");
 const Category = require("./../models/categoryModel");
 const mongoose = require("mongoose");
+const multer = require("multer");
+
+const multerStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "public/uploads");
+  },
+  filename: (req, file, cb) => {
+    const fileName = file.originalname.split(" ").join("-");
+    const ext = file.mimetype.split("/")[1];
+    cb(null, `${fileName}-${Date.now()}.${ext}`);
+  },
+});
+
+const multerFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith("image")) {
+    cb(null, true);
+  } else {
+    cb(new Error("Not an image! Please upload only images"), false);
+  }
+};
+
+const upload = multer({
+  storage: multerStorage,
+  fileFilter: multerFilter,
+});
+
+exports.uploadProductPhoto = upload.single("image");
+exports.uploadProductPhotos = upload.array("images", 10); 
 
 exports.createProduct = async (req, res, next) => {
   try {
@@ -11,11 +39,21 @@ exports.createProduct = async (req, res, next) => {
         .json({ status: "Invalid", message: "Invalid Category" });
     }
 
+    // Image
+    const file = req.file;
+    if (!file) {
+      return res
+        .status(400)
+        .json({ status: "Invalid", message: "No Image in the request" });
+    }
+    const fileName = req.file.filename;
+    const basePath = `${req.protocol}://${req.get("host")}/public/uploads/`;
+
     const product = await Product.create({
       name: req.body.name,
       description: req.body.description,
       richDescription: req.body.richDescription,
-      image: req.body.image,
+      image: `${basePath}${fileName}`,
       brand: req.body.brand,
       price: req.body.price,
       category: req.body.category,
@@ -45,7 +83,7 @@ exports.getAllProduct = async (req, res, next) => {
     const productList = await Product.find(filter).populate("category");
     // const productList = await Product.find().populate("category");
     // const productList = await Product.find();
-    
+
     res.status(201).json({
       status: "success",
       data: productList,
@@ -79,13 +117,31 @@ exports.updateProduct = async (req, res, next) => {
         .status(400)
         .json({ status: "Invalid", message: "Invalid Category" });
     }
+
+    // Image
+    const product = await Product.findById(req.params.productId);
+    if (!product) {
+      return res
+        .status(400)
+        .json({ status: "Invalid", message: "Invalid Product" });
+    }
+    const file = req.file;
+    let imagepath;
+    if (file) {
+      const fileName = req.file.filename;
+      const basePath = `${req.protocol}://${req.get("host")}/public/uploads/`;
+      imagepath = `${basePath}${fileName}`;
+    } else {
+      imagepath = product.image;
+    }
+
     const updatedProduct = await Product.findByIdAndUpdate(
       req.params.productId,
       {
         name: req.body.name,
         description: req.body.description,
         richDescription: req.body.richDescription,
-        image: req.body.image,
+        image: imagepath,
         brand: req.body.brand,
         price: req.body.price,
         category: req.body.category,
@@ -126,7 +182,7 @@ exports.getProductCount = async (req, res, next) => {
   try {
     const productCount = await Product.countDocuments();
     // const productCount = await Product.countDocuments((count) => count)
-    
+
     console.log(productCount);
 
     if (!productCount) {
@@ -155,6 +211,37 @@ exports.getFeatured = async (req, res, next) => {
       status: "success",
       products: {
         products,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.updateGalleryProduct = async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.productId)) {
+      res.status(400).json({ message: "Invalid Product Id" });
+    }
+    const files = req.files;
+    let imagePaths = [];
+    const basePath = `${req.protocol}://${req.get("host")}/public/uploads/`;
+    if (files) {
+      files.map((file) => {
+        imagePaths.push(`${basePath}${file.filename}`);
+      });
+    }
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.productId,
+      {
+        images: imagePaths,
+      },
+      { new: true }
+    );
+    res.status(201).json({
+      status: "success",
+      data: {
+        updatedProduct,
       },
     });
   } catch (err) {
